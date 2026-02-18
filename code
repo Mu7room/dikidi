@@ -1,5 +1,6 @@
 import requests
-from bs4 import BeautifulSoup
+import json
+import re
 import time
 import telebot
 import random
@@ -19,9 +20,8 @@ URLS = [
     "https://dikidi.ru/ru/record/596993?p=3.pi-po-ssm-sd&o=7&s=20488314&rl=0_undefined&source=widget"
 ]
 
-# Интервал проверки (секунды). 
-# DikiDi может блокировать за частые запросы. Минимум 30-40 сек.
-CHECK_INTERVAL = 45 
+# Интервал проверки (секунды). Не ставьте меньше 30!
+CHECK_INTERVAL = 45
 
 # =============================================
 
@@ -35,76 +35,86 @@ HEADERS = {
 }
 
 def send_alert(url, service_id=""):
+    """Отправляет уведомление в Telegram"""
     message = (
-        "🚨 *ЕСТЬ МЕСТА!*\n\n"
-        f"🆔 Услуга: {service_id}\n"
-        f"🔗 Ссылка: {url}\n\n"
-        "⚡️ Успейте записаться!"
+        "🚨 ЕСТЬ МЕСТА!\n\n"
+        f"Услуга ID: {service_id}\n"
+        f"Ссылка: {url}\n\n"
+        "Успейте записаться!"
     )
     try:
-        bot.send_message(CHAT_ID, message, parse_mode='Markdown')
+        # Без parse_mode, чтобы ссылка не ломала форматирование
+        bot.send_message(CHAT_ID, message)
         print(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Уведомление отправлено!")
     except Exception as e:
         print(f"Ошибка отправки: {e}")
 
 def check_page(url):
     """
-    Возвращает True, если мест НЕТ (есть ошибка).
-    Возвращает False, если места ЕСТЬ (ошибки нет).
+    Проверяет наличие мест через анализ data-options JSON.
+    Возвращает True, если места ЕСТЬ.
+    Возвращает False, если мест НЕТ.
     """
     try:
         response = requests.get(url, headers=HEADERS, timeout=10)
         
         if response.status_code != 200:
             print(f"Ошибка доступа ({response.status_code})")
-            return True # Считаем что мест нет, чтобы не спамить ошибкой
+            return False
 
-        soup = BeautifulSoup(response.text, 'html.parser')
+        html = response.text
         
-        # --- ЛОГИКА ПРОВЕРКИ ---
+        # Ищем data-options JSON в div.newrecord2
+        # Пример: <div class="newrecord2 height100" data-options='{"lang":"ru",...}'>
+        match = re.search(r'data-options=\'({.*?})\'\s*>', html, re.DOTALL)
         
-        # 1. Ищем контейнер ошибки. 
-        # Кнопка "Позвонить" лежит внутри <div class="nr-error">.
-        # Этот блок появляется в DOM только когда мест нет.
-        error_block = soup.find('div', class_='nr-error')
+        if not match:
+            print("Не удалось найти data-options")
+            return False
         
-        # 2. Ищем кнопку "Позвонить" внутри ошибки для надежности
-        call_button = None
-        if error_block:
-            call_button = error_block.find('a', class_='nr-error-call')
+        try:
+            options_json = match.group(1)
+            # Исправляем экранированные кавычки для JSON
+            options_json = options_json.replace('\\"', '"').replace('\\/', '/')
+            data = json.loads(options_json)
+        except json.JSONDecodeError as e:
+            print(f"Ошибка парсинга JSON: {e}")
+            return False
         
-        # 3. Положительные маркеры (ищем признаки того, что запись РАБОТАЕТ)
-        # Кнопки времени или кнопка "Продолжить"
-        time_slots = soup.find('button', class_='nr-time')
-        continue_btn = soup.find('a', class_='nr-continue')
+        # Проверяем ключевые поля в step_data
+        step_data = data.get('step_data', {})
         
-        # --- ПРИНЯТИЕ РЕШЕНИЯ ---
+        # Если есть даты и время - места есть
+        dates_true = step_data.get('dates_true', [])
+        times = step_data.get('times', [])
+        masters = step_data.get('masters', [])
+        first_date_true = step_data.get('first_date_true', '')
         
-        # Если есть блок ошибки И кнопка звонка внутри -> МЕСТ НЕТ
-        if error_block and call_button:
-            return True # Мест нет
+        # Логика проверки:
+        # Если массивы пустые и first_date_true пустой - мест нет
+        has_dates = len(dates_true) > 0
+        has_times = len(times) > 0
+        has_masters = len(masters) > 0
+        has_first_date = bool(first_date_true)
         
-        # Если есть слоты времени ИЛИ кнопка продолжения -> МЕСТА ЕСТЬ
-        if time_slots or continue_btn:
-            return False # Места есть!
-            
-        # Если мы не нашли ни ошибки, ни кнопок записи -> Скорее всего места есть
-        # (страница загрузилась, но JS еще не отрисовал слоты, или они есть)
-        # Но для надежности проверим текст ошибки
-        page_text = soup.get_text()
-        if "Недостаточно свободного времени" in page_text or "Нет ни одного специалиста" in page_text:
-            return True # Мест нет (текстовая ошибка)
-            
-        # По умолчанию считаем что места есть (лучше ложная тревога, чем пропуск)
-        return False 
+        # Если есть хоть один признак доступности - места есть
+        is_available = has_dates or has_times or has_masters or has_first_date
+        
+        if is_available:
+            print(f"✓ МЕСТА ЕСТЬ (dates:{len(dates_true)}, times:{len(times)}, masters:{len(masters)})")
+        else:
+            print(f"✗ Мест нет (dates:{len(dates_true)}, times:{len(times)}, masters:{len(masters)})")
+        
+        return is_available
             
     except Exception as e:
         print(f"Ошибка при проверке: {e}")
-        return True # При ошибке сети считаем что мест нет
+        return False
 
 def main():
-    print(f"🔍 Мониторинг запущен ({len(URLS)} ссылок).")
-    print(f"Цель: Исчезновение блока ошибки nr-error")
+    print(f"🔍 Мониторинг запущен ({len(URLS)} ссылок)")
+    print(f"Цель: Проверка data-options на наличие доступных слотов")
+    print(f"Интервал: {CHECK_INTERVAL} сек\n")
     
     alerted_urls = set()
 
@@ -113,27 +123,36 @@ def main():
             if url in alerted_urls:
                 continue
 
-            # True = мест нет, False = места есть
-            is_unavailable = check_page(url)
+            is_available = check_page(url)
             
-            if not is_unavailable:
-                # МЕСТА ЕСТЬ!
-                service_id = url.split('s=')[1].split('&')[0] if 's=' in url else 'Unknown'
+            if is_available:
+                # Извлекаем ID услуги из URL для отчета
+                service_id = "Unknown"
+                if 's=' in url:
+                    service_id = url.split('s=')[1].split('&')[0]
+                
                 send_alert(url, service_id)
                 alerted_urls.add(url)
-                print(">>> МЕСТО НАЙДЕНО! Ожидание...")
+                print(">>> МЕСТО НАЙДЕНО! Ожидание действий пользователя...\n")
             else:
-                # Мест нет
-                print(f"[{datetime.now().strftime('%H:%M:%S')}] Нет мест: ...s={url.split('s=')[1][:8] if 's=' in url else '??'}")
+                service_id = url.split('s=')[1].split('&')[0] if 's=' in url else '??'
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] Нет мест: ID={service_id}")
 
+        # Если все ссылки отработаны
         if len(alerted_urls) == len(URLS):
-            print("✅ Все ссылки отработаны.")
+            print("\n✅ Все ссылки проверены, уведомления отправлены.")
+            print("Скрипт завершает работу.")
             break
             
-        time.sleep(CHECK_INTERVAL + random.randint(2, 5))
+        # Случайная задержка для безопасности
+        sleep_time = CHECK_INTERVAL + random.randint(2, 5)
+        print(f"\n--- Следующая проверка через {sleep_time} сек ---\n")
+        time.sleep(sleep_time)
 
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\n⛔ Остановлено.")
+        print("\n⛔ Мониторинг остановлен пользователем.")
+    except Exception as e:
+        print(f"\n❌ Критическая ошибка: {e}")
