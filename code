@@ -7,6 +7,7 @@ import random
 from datetime import datetime
 
 # ================= НАСТРОЙКИ =================
+# ⚠️ Вставьте сюда НОВЫЙ токен после отзыва старого!
 TELEGRAM_TOKEN = '8250615686:AAEb5LeS8MOZ_8Lykk_8lX_twt7IZ9EqM84'
 CHAT_ID = '1099988220'
 
@@ -19,10 +20,10 @@ LAB_NAMES = {
     "21516155": "Коаг 1",
     "20496685": "Коаг 2",
     "21516163": "золи",
-    "21575413": "гранулы",
-    "20488314": "тест"
+    "21575413": "гранулы"
 }
 
+# Ссылки очищены от лишних пробелов
 URLS = [
     "https://dikidi.ru/ru/record/596993?p=3.pi-po-ssm-sd&o=7&s=20488344&rl=0_undefined&source=widget",
     "https://dikidi.ru/ru/record/596993?p=3.pi-po-ssm-sd&o=7&s=21516103&rl=0_undefined&source=widget",
@@ -31,9 +32,7 @@ URLS = [
     "https://dikidi.ru/ru/record/596993?p=3.pi-po-ssm-sd&o=7&s=21516155&rl=0_undefined&source=widget",
     "https://dikidi.ru/ru/record/596993?p=3.pi-po-ssm-sd&o=7&s=20496685&rl=0_undefined&source=widget",
     "https://dikidi.ru/ru/record/596993?p=3.pi-po-ssm-sd&o=7&s=21516163&rl=0_undefined&source=widget",
-    "https://dikidi.ru/ru/record/596993?p=3.pi-po-ssm-sd&o=7&s=21575413&rl=0_undefined&source=widget",
-    "https://dikidi.ru/ru/record/596993?p=3.pi-po-ssm-sd&o=7&s=20488314&rl=0_undefined&source=widget"
-
+    "https://dikidi.ru/ru/record/596993?p=3.pi-po-ssm-sd&o=7&s=21575413&rl=0_undefined&source=widget"
 ]
 
 # Интервал проверки (секунды)
@@ -108,6 +107,7 @@ def check_page(url):
         return False
 
 def get_service_info(url):
+    """Извлекает ID услуги из URL и находит название в словаре"""
     service_id = "Unknown"
     service_name = ""
     if 's=' in url:
@@ -125,27 +125,27 @@ def main():
     while True:
         try:
             for url in URLS:
+                # 1. СНАЧАЛА получаем информацию (ID и название)
+                # Это гарантирует, что service_id существует до любого использования
+                service_id, service_name = get_service_info(url)
+                
+                # 2. Проверяем наличие мест
                 is_available = check_page(url)
                 was_available = status_history[url]
                 
-                # Логика отправки:
-                # 1. Место есть СЕЙЧАС (is_available = True)
-                # 2. И места НЕ БЫЛО в прошлый раз (was_available = False)
-                # Это значит, что место только что освободилось!
+                # 3. Логика отправки
                 if is_available and not was_available:
-                    service_id, service_name = get_service_info(url)
                     send_alert(url, service_id, service_name)
                 
-                # Обновляем историю состояния
+                # 4. Обновляем историю
                 status_history[url] = is_available
                 
-                # Вывод в консоль для понимания, что скрипт жив
+                # 5. Вывод в консоль (теперь service_id точно определен)
                 if is_available:
                     print(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ МЕСТА ЕСТЬ: {service_id}")
                 else:
                     print(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ Нет мест: {service_id}")
 
-            # Задержка перед следующим кругом проверки
             sleep_time = CHECK_INTERVAL + random.randint(2, 5)
             time.sleep(sleep_time)
             
