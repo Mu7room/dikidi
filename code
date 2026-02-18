@@ -19,7 +19,8 @@ LAB_NAMES = {
     "21516155": "Коаг 1",
     "20496685": "Коаг 2",
     "21516163": "золи",
-    "21575413": "гранулы"
+    "21575413": "гранулы",
+    "20488314": "тест"
 }
 
 URLS = [
@@ -30,12 +31,13 @@ URLS = [
     "https://dikidi.ru/ru/record/596993?p=3.pi-po-ssm-sd&o=7&s=21516155&rl=0_undefined&source=widget",
     "https://dikidi.ru/ru/record/596993?p=3.pi-po-ssm-sd&o=7&s=20496685&rl=0_undefined&source=widget",
     "https://dikidi.ru/ru/record/596993?p=3.pi-po-ssm-sd&o=7&s=21516163&rl=0_undefined&source=widget",
-    "https://dikidi.ru/ru/record/596993?p=3.pi-po-ssm-sd&o=7&s=21575413&rl=0_undefined&source=widget"
+    "https://dikidi.ru/ru/record/596993?p=3.pi-po-ssm-sd&o=7&s=21575413&rl=0_undefined&source=widget",
+    "https://dikidi.ru/ru/record/596993?p=3.pi-po-ssm-sd&o=7&s=20488314&rl=0_undefined&source=widget"
 
 ]
 
 # Интервал проверки (секунды)
-CHECK_INTERVAL = 300
+CHECK_INTERVAL = 60
 
 # =============================================
 
