@@ -15,7 +15,8 @@ URLS = [
     "https://dikidi.ru/ru/record/596993?p=3.pi-po-ssm-sd&o=7&s=21516103&rl=0_undefined&source=widget",
     "https://dikidi.ru/ru/record/596993?p=3.pi-po-ssm-sd&o=7&s=21516143&rl=0_undefined&source=widget",
     "https://dikidi.ru/ru/record/596993?p=3.pi-po-ssm-sd&o=7&s=21516163&rl=0_undefined&source=widget",
-    "https://dikidi.ru/ru/record/596993?p=3.pi-po-ssm-sd&o=7&s=21575413&rl=0_undefined&source=widget"
+    "https://dikidi.ru/ru/record/596993?p=3.pi-po-ssm-sd&o=7&s=21575413&rl=0_undefined&source=widget",
+    "https://dikidi.ru/ru/record/596993?p=3.pi-po-ssm-sd&o=7&s=20488314&rl=0_undefined&source=widget"
 ]
 
 # Интервал проверки (секунды). 
