@@ -47,7 +47,7 @@ URLS = [
     "https://dikidi.ru/ru/record/596993?p=3.pi-po-ssm-sd&o=7&s=21575413&rl=0_undefined&source=widget"
 ]
 
-CHECK_INTERVAL = 300  # 5 минут
+CHECK_INTERVAL = 110  # 5 минут
 MAX_ERRORS = 3
 
 # =============================================
