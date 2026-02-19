@@ -32,7 +32,7 @@ URLS = [
     "https://dikidi.ru/ru/record/596993?p=3.pi-po-ssm-sd&o=7&s=21575413&rl=0_undefined&source=widget"
 ]
 
-CHECK_INTERVAL = 300
+CHECK_INTERVAL = 110
 # =============================================
 
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
@@ -57,23 +57,33 @@ def format_datetime(datetime_str):
             return datetime_str
 
 def send_alert(url, service_id, service_name, booking_info):
-    """Отправляет уведомление в Telegram (только важная информация)"""
+    """Отправляет уведомление с подробной информацией о записи"""
     
     if service_name:
         work_info = f"📚 *{service_name}*"
     else:
         work_info = f"🆔 ID: {service_id}"
     
-    # Формируем сообщение БЕЗ мест/мастеров/слотов
+    # Формируем основную информацию
     message = f"🚨 *ЕСТЬ МЕСТА!*\n\n{work_info}\n\n"
     
+    # Добавляем информацию о доступных слотах
     if booking_info.get('first_datetime'):
         message += f"📅 *Первая запись:* `{booking_info['first_datetime']}`\n"
     
     if booking_info.get('available_dates'):
         message += f"📆 *Дней доступно:* {booking_info['available_dates']}\n"
     
-    # Добавляем кликабельную ссылку
+    # УБРАНО: available_masters и available_times
+    # if booking_info.get('available_masters'):
+    #     message += f"👨‍🔬 Мест/мастеров: {booking_info['available_masters']}\n"
+    # if booking_info.get('available_times'):
+    #     message += f"⏰ Временных слотов: {booking_info['available_times']}\n"
+    
+    if booking_info.get('master_names'):
+        message += f"📍 *Места:* {booking_info['master_names']}\n"
+    
+    # Добавляем кнопку-ссылку
     message += f"\n🔗 [Записаться сейчас]({url})"
     message += "\n\n⚡️ _Места быстро разбирают!_"
     
@@ -90,7 +100,8 @@ def check_page(url):
     """
     booking_info = {
         'first_datetime': '',
-        'available_dates': 0
+        'available_dates': 0,
+        'master_names': ''
     }
     
     try:
@@ -113,10 +124,18 @@ def check_page(url):
         
         step_data = data.get('step_data', {})
         
+        # Получаем данные о доступности
         dates_true = step_data.get('dates_true', [])
         times = step_data.get('times', {})
         masters = step_data.get('masters', {})
         first_date_true = step_data.get('first_date_true', '')
+        
+        # Получаем имена мастеров/мест
+        master_names = []
+        for master_id, master_data in masters.items():
+            name = master_data.get('username', '')
+            if name and name not in master_names:
+                master_names.append(name)
         
         # Определяем первое доступное время
         first_datetime = ''
@@ -130,15 +149,16 @@ def check_page(url):
         elif first_date_true:
             first_datetime = format_datetime(first_date_true)
         
-        # Заполняем booking_info (только дата и количество дней)
+        # Заполняем booking_info (без available_masters и available_times)
         booking_info['first_datetime'] = first_datetime
         booking_info['available_dates'] = len(dates_true)
+        booking_info['master_names'] = ', '.join(master_names[:3])  # Первые 3 места
         
         # Проверяем доступность
         is_available = len(dates_true) > 0 or len(times) > 0 or len(masters) > 0 or bool(first_date_true)
         
         if is_available:
-            print(f"✓ МЕСТА ЕСТЬ (даты:{len(dates_true)})")
+            print(f"✓ МЕСТА ЕСТЬ (даты:{len(dates_true)}, места:{len(masters)})")
         else:
             print(f"✗ Мест нет")
         
