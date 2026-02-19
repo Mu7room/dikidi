@@ -10,7 +10,7 @@ from datetime import datetime
 # ================= НАСТРОЙКИ =================
 # ⚠️ Вставьте сюда НОВЫЙ токен после отзыва старого!
 TELEGRAM_TOKEN = '8250615686:AAEb5LeS8MOZ_8Lykk_8lX_twt7IZ9EqM84'
-CHAT_ID = '-1003705403133'
+CHAT_ID = '1099988220'
 
 # --- ПОЛНЫЕ НАЗВАНИЯ (для Telegram) ---
 LAB_NAMES = {
