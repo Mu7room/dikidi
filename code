@@ -4,21 +4,36 @@ import re
 import time
 import telebot
 import random
+import logging
 from datetime import datetime
 
 # ================= НАСТРОЙКИ =================
+# ⚠️ Вставьте сюда НОВЫЙ токен после отзыва старого!
 TELEGRAM_TOKEN = '8250615686:AAEb5LeS8MOZ_8Lykk_8lX_twt7IZ9EqM84'
 CHAT_ID = '-1003705403133'
-# --- СЛОВАРЬ НАЗВАНИЙ ЛАБОРАТОРНЫХ ---
+
+# --- ПОЛНЫЕ НАЗВАНИЯ (для Telegram) ---
 LAB_NAMES = {
     "20488344": "1. Исследование молекулярной адсорбции растворенного вещества из растворов на активированном угле",
     "21516103": "2. Исследование обменной адсорбции ионов",
     "20488811": "3. Исследование свойств поверхности раздела фаз: раствор ПАВ – воздух",
     "21516160": "4. Турбидиметрическое исследование коллоидных систем — определение размера частиц",
     "21516155": "5. Изучение коагуляции гидрозоля гидроксида железа",
-    "20496685": "5. Изучение коагуляции гидрозоля гидроксида железа",
+    "20496685": "5. Изучение коагуляции гидрозоля гидроксида железа (дубль)",
     "21516163": "6. Получение лиофобных золей",
     "21575413": "7. Заряд гранулы"
+}
+
+# --- КОРОТКИЕ НАЗВАНИЯ (ТОЛЬКО для логов) ---
+LAB_SHORT_NAMES = {
+    "20488344": "Адсорбция (уголь)",
+    "21516103": "Адсорбция (ионы)",
+    "20488811": "ПАВ",
+    "21516160": "Турбидиметрия",
+    "21516155": "Коагуляция 1",
+    "20496685": "Коагуляция 2",
+    "21516163": "Золи",
+    "21575413": "Гранулы"
 }
 
 URLS = [
@@ -32,8 +47,20 @@ URLS = [
     "https://dikidi.ru/ru/record/596993?p=3.pi-po-ssm-sd&o=7&s=21575413&rl=0_undefined&source=widget"
 ]
 
-CHECK_INTERVAL = 110
+CHECK_INTERVAL = 300  # 5 минут
+MAX_ERRORS = 3
+
 # =============================================
+
+# Настройка логирования
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('monitor.log', encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
 
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
 
@@ -43,6 +70,9 @@ HEADERS = {
     'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
     'Referer': 'https://dikidi.ru/'
 }
+
+# Хранилище: {url: {'message_id': 123, 'error_count': 0, 'last_error_time': None}}
+url_state = {}
 
 def format_datetime(datetime_str):
     """Форматирует дату и время в читаемый вид"""
@@ -57,85 +87,98 @@ def format_datetime(datetime_str):
             return datetime_str
 
 def send_alert(url, service_id, service_name, booking_info):
-    """Отправляет уведомление с подробной информацией о записи"""
+    """Отправляет уведомление в Telegram (с ПОЛНЫМ названием)"""
     
     if service_name:
         work_info = f"📚 *{service_name}*"
     else:
         work_info = f"🆔 ID: {service_id}"
     
-    # Формируем основную информацию
     message = f"🚨 *ЕСТЬ МЕСТА!*\n\n{work_info}\n\n"
     
-    # Добавляем информацию о доступных слотах
     if booking_info.get('first_datetime'):
         message += f"📅 *Первая запись:* `{booking_info['first_datetime']}`\n"
     
     if booking_info.get('available_dates'):
         message += f"📆 *Дней доступно:* {booking_info['available_dates']}\n"
     
-    # УБРАНО: available_masters и available_times
-    # if booking_info.get('available_masters'):
-    #     message += f"👨‍🔬 Мест/мастеров: {booking_info['available_masters']}\n"
-    # if booking_info.get('available_times'):
-    #     message += f"⏰ Временных слотов: {booking_info['available_times']}\n"
-    
-    if booking_info.get('master_names'):
-        message += f"📍 *Места:* {booking_info['master_names']}\n"
-    
-    # Добавляем кнопку-ссылку
     message += f"\n🔗 [Записаться сейчас]({url})"
     message += "\n\n⚡️ _Места быстро разбирают!_"
     
     try:
-        bot.send_message(CHAT_ID, message, parse_mode='Markdown')
-        print(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Уведомление отправлено!")
+        msg = bot.send_message(CHAT_ID, message, parse_mode='Markdown')
+        if url not in url_state:
+            url_state[url] = {}
+        url_state[url]['message_id'] = msg.message_id
+        url_state[url]['last_sent'] = datetime.now()
+        logging.info(f"✅ Уведомление отправлено: {service_id}")
     except Exception as e:
-        print(f"❌ Ошибка отправки: {e}")
+        logging.error(f"❌ Ошибка отправки: {e}")
+
+def delete_alert(url, service_id):
+    """Удаляет уведомление, когда места пропадают"""
+    if url in url_state and 'message_id' in url_state[url]:
+        try:
+            bot.delete_message(CHAT_ID, url_state[url]['message_id'])
+            # Получаем короткое имя для лога
+            short_name = LAB_SHORT_NAMES.get(service_id, service_id)
+            logging.info(f"🗑️ Уведомление удалено: {short_name}")
+            if 'message_id' in url_state[url]:
+                del url_state[url]['message_id']
+        except Exception as e:
+            logging.warning(f"⚠️ Не удалось удалить сообщение: {e}")
+
+def send_error_alert(url, service_id, error_msg):
+    """Отправляет предупреждение о проблемах с ссылкой"""
+    # Для Telegram используем полное название
+    service_name = LAB_NAMES.get(service_id, service_id)
+    message = (
+        f"⚠️ *ПРОБЛЕМА С ЗАПИСЬЮ*\n\n"
+        f"📚 {service_name}\n"
+        f"🆔 ID: {service_id}\n"
+        f"❌ Ошибка: {error_msg}\n\n"
+        f"🔗 [Проверить вручную]({url})"
+    )
+    try:
+        bot.send_message(CHAT_ID, message, parse_mode='Markdown')
+        logging.warning(f"🚨 Отправлено предупреждение об ошибке: {service_id}")
+    except Exception as e:
+        logging.error(f"❌ Не удалось отправить предупреждение: {e}")
 
 def check_page(url):
     """
-    Проверяет наличие мест и собирает подробную информацию
-    Возвращает: (is_available, booking_info)
+    Проверяет наличие мест.
+    Возвращает: (is_available, booking_info, error_msg)
     """
-    booking_info = {
-        'first_datetime': '',
-        'available_dates': 0,
-        'master_names': ''
-    }
+    booking_info = {'first_datetime': '', 'available_dates': 0}
     
     try:
-        response = requests.get(url, headers=HEADERS, timeout=10)
+        response = requests.get(url, headers=HEADERS, timeout=15)
         
-        if response.status_code != 200:
-            return False, booking_info
+        if response.status_code == 429:
+            return None, booking_info, "Слишком много запросов (429)"
+        elif response.status_code == 403:
+            return None, booking_info, "Доступ запрещён (403)"
+        elif response.status_code != 200:
+            return None, booking_info, f"Ошибка {response.status_code}"
 
         html = response.text
         match = re.search(r'data-options=\'({.*?})\'\s*>', html, re.DOTALL)
         
         if not match:
-            return False, booking_info
+            return None, booking_info, "Не найдено data-options"
         
         try:
             options_json = match.group(1).replace('\\"', '"').replace('\\/', '/')
             data = json.loads(options_json)
-        except json.JSONDecodeError:
-            return False, booking_info
+        except json.JSONDecodeError as e:
+            return None, booking_info, f"Ошибка JSON: {str(e)[:50]}"
         
         step_data = data.get('step_data', {})
-        
-        # Получаем данные о доступности
         dates_true = step_data.get('dates_true', [])
         times = step_data.get('times', {})
         masters = step_data.get('masters', {})
         first_date_true = step_data.get('first_date_true', '')
-        
-        # Получаем имена мастеров/мест
-        master_names = []
-        for master_id, master_data in masters.items():
-            name = master_data.get('username', '')
-            if name and name not in master_names:
-                master_names.append(name)
         
         # Определяем первое доступное время
         first_datetime = ''
@@ -149,38 +192,37 @@ def check_page(url):
         elif first_date_true:
             first_datetime = format_datetime(first_date_true)
         
-        # Заполняем booking_info (без available_masters и available_times)
         booking_info['first_datetime'] = first_datetime
         booking_info['available_dates'] = len(dates_true)
-        booking_info['master_names'] = ', '.join(master_names[:3])  # Первые 3 места
         
-        # Проверяем доступность
         is_available = len(dates_true) > 0 or len(times) > 0 or len(masters) > 0 or bool(first_date_true)
         
-        if is_available:
-            print(f"✓ МЕСТА ЕСТЬ (даты:{len(dates_true)}, места:{len(masters)})")
-        else:
-            print(f"✗ Мест нет")
-        
-        return is_available, booking_info
+        return is_available, booking_info, None
             
+    except requests.exceptions.Timeout:
+        return None, booking_info, "Тайм-аут соединения"
+    except requests.exceptions.ConnectionError:
+        return None, booking_info, "Ошибка соединения"
     except Exception as e:
-        print(f"Ошибка проверки: {e}")
-        return False, booking_info
+        return None, booking_info, f"Неизвестная ошибка: {str(e)[:50]}"
 
 def get_service_info(url):
     service_id = "Unknown"
-    service_name = ""
     if 's=' in url:
         service_id = url.split('s=')[1].split('&')[0]
-        service_name = LAB_NAMES.get(service_id, "")
-    return service_id, service_name
+    # Полное название (для Telegram)
+    service_name = LAB_NAMES.get(service_id, "")
+    # Короткое название (для логов)
+    short_name = LAB_SHORT_NAMES.get(service_id, service_id)
+    return service_id, service_name, short_name
 
 def main():
-    print(f"🔍 Мониторинг запущен ({len(URLS)} ссылок)")
-    print(f"Режим: Бесконечный цикл\n")
+    logging.info(f"🔍 Мониторинг запущен ({len(URLS)} ссылок)")
+    logging.info(f"📝 Лог пишется в monitor.log")
     
-    status_history = {url: False for url in URLS}
+    # Инициализация состояния URL
+    for url in URLS:
+        url_state[url] = {'error_count': 0, 'last_error_time': None}
     
     # Отправляем сообщение о запуске
     try:
@@ -189,46 +231,70 @@ def main():
             f"🟢 *Мониторинг запущен!*\n\n"
             f"📊 Отслеживается: {len(URLS)} работ\n"
             f"⏱ Интервал: {CHECK_INTERVAL} сек\n"
-            f"🕒 Время запуска: {datetime.now().strftime('%d.%m.%Y %H:%M')}",
+            f"🕒 Время: {datetime.now().strftime('%d.%m.%Y %H:%M')}",
             parse_mode='Markdown'
         )
-    except:
-        pass
+    except Exception as e:
+        logging.warning(f"⚠️ Не удалось отправить сообщение о запуске: {e}")
 
     while True:
         try:
             for url in URLS:
-                service_id, service_name = get_service_info(url)
+                # Получаем ID, полное имя (для TG) и короткое имя (для логов)
+                service_id, service_name, short_name = get_service_info(url)
                 
-                is_available, booking_info = check_page(url)
-                was_available = status_history[url]
+                is_available, booking_info, error_msg = check_page(url)
                 
-                # Отправляем уведомление только если место только что появилось
+                # --- Обработка ошибок ---
+                if error_msg:
+                    url_state[url]['error_count'] = url_state[url].get('error_count', 0) + 1
+                    url_state[url]['last_error_time'] = datetime.now()
+                    
+                    # В логах используем короткое название
+                    logging.warning(f"⚠️ {short_name}: {error_msg} (ошибок подряд: {url_state[url]['error_count']})")
+                    
+                    if url_state[url]['error_count'] >= MAX_ERRORS:
+                        last_warn = url_state[url].get('last_warning_time')
+                        if not last_warn or (datetime.now() - last_warn).total_seconds() > 1800:
+                            send_error_alert(url, service_id, error_msg)
+                            url_state[url]['last_warning_time'] = datetime.now()
+                            url_state[url]['error_count'] = 0
+                    
+                    if url_state[url].get('message_id'):
+                        delete_alert(url, service_id)
+                    
+                    continue
+                
+                url_state[url]['error_count'] = 0
+                was_available = url_state[url].get('was_available', False)
+                
                 if is_available and not was_available:
                     send_alert(url, service_id, service_name, booking_info)
+                elif not is_available and was_available:
+                    delete_alert(url, service_id)
                 
-                status_history[url] = is_available
+                url_state[url]['was_available'] = is_available
                 
-                # Вывод в консоль
+                # Вывод в консоль (КОРОТКОЕ название)
                 if is_available:
                     time_info = booking_info.get('first_datetime', '')
-                    print(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ {service_id}: {time_info}")
+                    logging.info(f"✅ {short_name}: {time_info or 'даты есть'}")
                 else:
-                    print(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ {service_id}")
+                    logging.debug(f"❌ {short_name}: нет мест")
 
-            sleep_time = CHECK_INTERVAL + random.randint(2, 5)
+            sleep_time = CHECK_INTERVAL + random.randint(0, 10)
+            logging.info(f"💤 Пауза {sleep_time} сек до следующей проверки...")
             time.sleep(sleep_time)
             
         except KeyboardInterrupt:
-            print("\n⛔ Остановлено пользователем.")
+            logging.info("⛔ Остановлено пользователем")
             try:
                 bot.send_message(CHAT_ID, "🔴 Мониторинг остановлен", parse_mode='Markdown')
             except:
                 pass
             break
         except Exception as e:
-            print(f"\n❌ Критическая ошибка: {e}")
-            print("Перезапуск через 10 секунд...")
+            logging.error(f"❌ Критическая ошибка в цикле: {e}")
             time.sleep(10)
 
 if __name__ == "__main__":
